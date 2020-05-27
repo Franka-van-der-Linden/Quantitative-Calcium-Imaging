@@ -7,7 +7,7 @@
 # fitting of model to Tq-Ca-FLITS lifetimes and fraction to determine Kd
 
 ## Part 2: contains
-# plotting the models with the measured data of Tq=Ca-FLITS
+# plotting the models with the measured data of Tq-Ca-FLITS
 # plotting the measured data of both sensors on a polar plot
 
 #for summarizing of data
@@ -15,9 +15,11 @@ require(dplyr)
 #for plotting
 require(ggplot2)
 
-setwd("/Users/Franka/surfdrive/mTQ2 paper/to_Github")
-FLITS <- read.csv("Kd_vitro_lifetime_Tq-Ca-FLITS.csv")
-jGCaMP7c <- read.csv("Kd_vitro_lifetime_jGCaMP7c.csv")
+link1 <- "https://raw.githubusercontent.com/Franka-van-der-Linden/Quantitative-Calcium-Imaging/master/R_scripts_for_modelling/Kd_vitro_lifetime_Tq-Ca-FLITS.csv"
+FLITS <- read.csv(link1)
+link2 <- "https://raw.githubusercontent.com/Franka-van-der-Linden/Quantitative-Calcium-Imaging/master/R_scripts_for_modelling/Kd_vitro_lifetime_jGCaMP7c.csv"
+jGCaMP7c <- read.csv(link2)
+
 
 ###### PART 1: Calculate into G and S coordinates and fit Kd to Tq-Ca-FLITS data######
 #####calculate lifetimes to Phi, M, G and S####
@@ -108,7 +110,7 @@ FLITS$lfraction <- FLITS$IN/extremes[2,]$IN
 extremes$lfraction <- extremes$IN/extremes[2,]$IN
 
 ##convert to true fraction
-Ratio <- 3.51 ##from pKa fitting, pH7.
+Ratio <- 3.51 ##from pKa data: calcium bound divided over calcium free at pH7.
 FLITS$Fraction <- FLITS$lfraction/(Ratio*(1-FLITS$lfraction)+FLITS$lfraction)
 extremes$Fraction <- extremes$lfraction/(Ratio*(1-extremes$lfraction)+extremes$lfraction)
 
