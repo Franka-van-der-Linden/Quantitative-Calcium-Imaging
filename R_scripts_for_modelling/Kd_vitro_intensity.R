@@ -2,13 +2,16 @@
 # the script fits a curve to the data to determine the Kd.
 # also some plots are generated, showing the model and the measurements
 
+#for plotting
 require(ggplot2)
+#add predictions
 require(modelr)
 
 # #import data
-setwd("/Users/Franka/surfdrive/mTQ2 paper/to_Github")
-FLITS <- read.csv("Kd_vitro_intensity_Tq-Ca-FLITS.csv")
-jGCaMP7c <- read.csv("Kd_vitro_intensity_jGCaMP7c.csv")
+link1 <- "https://raw.githubusercontent.com/Franka-van-der-Linden/Quantitative-Calcium-Imaging/master/R_scripts_for_modelling/Kd_vitro_intensity_Tq-Ca-FLITS.csv"
+FLITS <- read.csv(link1)
+link2 <- "https://raw.githubusercontent.com/Franka-van-der-Linden/Quantitative-Calcium-Imaging/master/R_scripts_for_modelling/Kd_vitro_intensity_jGCaMP7c.csv"
+jGCaMP7c <- read.csv(link2)
 
 ## I want to fit a model for the Kd, without normalization of the data
 
