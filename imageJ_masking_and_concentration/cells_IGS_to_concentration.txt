@@ -1,0 +1,307 @@
+////// This macro is used to create concentration images from phasor coordinates of FLIM data
+
+////This macro:
+//assumes a hyperstack of 3 timelapses (intensity, G and S) 
+//does a optional correction of the G and S coordinates
+//calculated the G/S coordinates into a concentration based on provided calibration data
+//does a optional thresholding based on intensity
+//does a optional median filtering of the calculated concentration image. Adviced to only use when no previous filtering was applied.
+//creates a concentration image in RGB format where the color represents the concentration and the brightness the fluorescence intensity.
+//   the color scale used can be adapted (default=Viridis), even as the concentration range
+
+
+
+////Carefully go through the following choices
+
+// Make sure the image name can be read below. The string in ‘indexOf(name,"_FLIM”)’ must be present in the image title and from there till the end of the name will be replaced with ‘_calciummovie.tif’.
+	name=getTitle();
+	prefix=substring(name, 0, indexOf(name,"_FLIM"));
+	newname = prefix+"_calciummovie.tif";
+
+// Choose a threshold (optional). Below this value the concentration and intensity data are removed (set to NA).
+	th=0;
+
+// Choose the display range of the concentration in uM (default 0, 2) and LUT
+	minC = 0;
+	maxC = 2;
+	LUT = "Viridis";
+
+// Choose if you want to do a median filtering of the concentration with radius 1.
+// 1 is yes, 0 is no
+	filterFLAG =0;
+
+//Set the correct modulation frequency
+	MHz = 40;
+	omega = 2*PI*MHz/1000;
+
+//Fill in the calibration data. Ka is apparent Kd of the line fraction in vivo. n is the corresponding Hill coefficient.
+	Ka = 0.1346078; 
+	n = 1.6521492;
+//Fill in the extreme G and S coordinates found by the in vivo calibration.
+	S_min = 0.3014188;
+	S_max = 0.4561149;
+	G_min = 0.859386;
+	G_max = 0.6539624;
+
+// Choose de min and maximum line fractions that can be calculated, using the in vivo calibration
+	minF = 0.04341091;
+	maxF = 0.98656979;
+
+// Choose if you want to do a correction of the G and S coordinates based on the M and Phi. 1 is yes, 0 is no
+// if you choose to do a correction, enter the correct correction values
+	correctionFLAG = 1;
+	//M_division = 0.968939116204511; // for movie S2
+	//Phi_add = -0.00819205625862822; // for movie S2
+	M_division = 1.0471235457417; // for movie S3, TEM
+	Phi_add = 0.0453607956954; // for movie S3, TEM
+
+////end of input
+
+
+
+
+////Separate intensity and concentration data
+	selectWindow(name);
+	run("Duplicate...", "title=I duplicate channels=1");
+	selectWindow(name);
+	run("Duplicate...", "title=mask duplicate channels=1");
+	selectWindow(name);
+	run("Duplicate...", "title=G duplicate channels=2");
+	selectWindow(name);
+	run("Duplicate...", "title=S duplicate channels=3");
+
+
+////Do the correction of the G and S coordinates via the M and Phi coordinates
+	if (correctionFLAG==1) {
+	selectWindow("S"); rename("wrong_S");
+	selectWindow("G"); rename("wrong_G");
+
+	//calculate to M and Phi and do the correction
+	selectWindow("wrong_G"); run("Duplicate...", "duplicate"); rename("G2");
+	run("Square", "stack");
+	selectWindow("wrong_S"); run("Duplicate...", "duplicate"); rename("S2");
+	run("Square", "stack");
+	imageCalculator("Add create stack", "S2","G2"); rename("M");
+	run("Square Root", "stack");
+	///////this is the actual correction of the M
+	run("Divide...", "value=" + M_division + " stack");
+
+	imageCalculator("Divide create stack", "wrong_S","wrong_G"); rename("Phi");
+	code = "code=atan(v) stack";
+	run("Macro...", code);			//slow step
+	///////this is the actual correction of the Phi
+	run("Add...", "value=" + Phi_add + " stack");
+
+//calculate back to G and S
+	///calculate cos(Phi) and sin(Phi) images
+	selectWindow("Phi"); run("Duplicate...", "duplicate"); rename("cos(Phi)");
+	run("Macro...", "code=cos(v) stack");		// slow step!
+	run("Enhance Contrast", "saturated=0.35");
+
+	selectWindow("Phi"); run("Duplicate...", "duplicate"); rename("sin(Phi)");
+	run("Macro...", "code=sin(v) stack");		// slow step!
+	run("Enhance Contrast", "saturated=0.35");
+
+	imageCalculator("Multiply create stack", "cos(Phi)","M");
+	selectWindow("Result of cos(Phi)"); rename("G");
+	run("Enhance Contrast", "saturated=0.35");
+
+	imageCalculator("Multiply create stack", "sin(Phi)","M");
+	selectWindow("Result of sin(Phi)"); rename("S");
+	run("Enhance Contrast", "saturated=0.35"); 
+
+//close old images
+	selectWindow("wrong_G"); close();
+	selectWindow("wrong_S"); close();
+	selectWindow("M"); close();
+	selectWindow("Phi"); close();
+	selectWindow("sin(Phi)"); close();
+	selectWindow("cos(Phi)"); close();
+	selectWindow("G2"); close();
+	selectWindow("S2"); close();
+}
+
+
+
+
+
+////prepare the calculation to the concentration
+//set some (empty) arrays
+	S_range = newArray(S_min, S_max);
+	G_range = newArray(G_min, G_max);
+	dS_range = newArray(0,0); dG_range = newArray(0,0);
+	IN_range = newArray(0,0); temp = newArray(0,0);
+	fraction_range = newArray(0,0);
+
+//calculate given values into dS dG, IN, line fraction
+	for (i = 0; i<2; i++) {
+	   dS = S_range[i] - S_range[0];
+	   dG = G_range[i] - G_range[0];
+	   dG_range[i] = dG;
+	   dS_range[i] = dS;
+	}
+
+	for (i = 0; i<2; i++) {
+	   IN = dG_range[i] * dG_range[1] + dS_range[i] * dS_range[1];
+	   IN_range[i] = IN;
+	}
+
+	temp[0] = IN_range[0]/IN_range[1];
+	temp[1] = IN_range[1]/IN_range[1];
+
+	for (i = 0; i<2; i++) {
+	   fraction= temp[i]/( (1-temp[i]) +temp[i]);
+	   fraction_range[i] = fraction;
+	}
+
+
+////calculation G and S of the actual data into a concentration
+//convert to dG dS
+	selectWindow("G");
+	run("Enhance Contrast", "saturated=0.35"); run("Duplicate...", "duplicate"); rename("dG");
+	code="value=" + G_range[0] + " stack";
+	run("Subtract...", code);
+	run("Enhance Contrast", "saturated=0.35");
+
+	selectWindow("S");
+	run("Enhance Contrast", "saturated=0.35"); run("Duplicate...", "duplicate"); rename("dS");
+	code="value=" + S_range[0] + " stack";
+	run("Subtract...", code);
+	run("Enhance Contrast", "saturated=0.35");
+
+//convert into IN product
+	selectWindow("dG"); run("Duplicate...", "duplicate"); rename("IN_G");
+	code="value=" + dG_range[1] + " stack";
+	run("Multiply...", code);
+	run("Enhance Contrast", "saturated=0.35");
+
+	selectWindow("dS"); run("Duplicate...", "duplicate"); rename("IN_S");
+	code="value=" + dS_range[1] + " stack";
+	run("Multiply...", code);
+	run("Enhance Contrast", "saturated=0.35");
+
+	imageCalculator("Add create stack", "IN_G","IN_S"); 
+	selectWindow("Result of IN_G"); rename("IN");
+	run("Enhance Contrast", "saturated=0.35");
+
+//convert to line fraction: divide by total length of the line in the polar plot running from the low to the high state.
+	run("Duplicate...", "duplicate"); rename("fraction");
+	code="value=" + IN_range[1] + " stack";
+	run("Divide...", code);
+	run("Enhance Contrast", "saturated=0.35");
+	run(LUT); setMinAndMax(0, 1);
+	
+// Make sure I do not get too low or too high values for the line fraction (reset all line fractions above maximum value I can measure to this value, and the same for all line fractions below the minimum detection range.)
+	run("Duplicate...", "duplicate"); rename("corr_fraction");
+	getStatistics(dummy, dummy, min, max, dummy, dummy);
+	code = "value=" + minF + " stack";
+	run("Min...", code);
+	code = "value=" + maxF + " stack";
+	run("Max...", code);
+
+//go from line fraction to concentration
+	run("Duplicate...", "duplicate"); rename("C");
+	code = "code=" + Ka + "*1/pow((1/v-1),1/" + n + ")" + " stack";
+	run("Macro...", code);			//slow step!
+	setMinAndMax(minC, maxC);
+	
+//close old images
+	selectWindow("dS"); close();
+	selectWindow("S"); close();
+	selectWindow("dG"); close();
+	selectWindow("G"); close();
+	selectWindow("IN"); close();
+	selectWindow("IN_G"); close();
+	selectWindow("IN_S"); close();
+
+
+////mask the intensity image, based on the chosen threshold
+	setBatchMode(true);
+	selectWindow("mask");
+	run("Enhance Contrast", "saturated=0.35");
+	getDimensions(dummy2, dummy2, ch, fr, sl);
+	run("Stack to Images");
+	for (f=1; f<=fr; f++) {
+	   if (f<10) {
+	      current = "-000" + f;
+	   } else {
+	      current = "-00" + f;
+	   }
+	   selectWindow("mask" + current);
+	   run("Threshold...");
+	   setThreshold(th, 30000);
+	   wait(100);
+	   run("Convert to Mask");
+	   wait(100);
+	   if (f==1) {
+	      rename("tempmask");
+	   } else {
+	      rename("tempje");
+	      run("Concatenate...", "  title=tempmask open image1=tempmask image2=tempje image3=[-- None --]");
+	      wait(100);
+	}  }
+	
+	setBatchMode("exit and display");
+	
+	selectWindow("tempmask");
+	run("Divide...", "value=255 stack");
+	run("Enhance Contrast", "saturated=0.35");
+	selectWindow("I"); imageCalculator("Multiply create stack", "I","tempmask");
+	selectWindow("Result of I"); imageCalculator("Divide create stack", "Result of I","tempmask"); rename("I_masked");
+	selectWindow("I"); close();
+	selectWindow("tempmask"); close();
+	selectWindow("Result of I"); close();
+
+
+////combine the intensity and concentration data to a nice movie
+//prepare to combine intensity and concentration data
+	selectWindow("I_masked");
+	run("Grays");
+	setSlice(1);
+	resetMinAndMax();
+	run("8-bit");
+
+	selectWindow("C");
+	run("Duplicate...", "duplicate"); rename("backup_C");
+	selectWindow("C"); run(LUT);	
+	if (filterFLAG ==1) {
+	run("Median...", "radius=1 stack");
+	}
+	setMinAndMax(minC, maxC);
+	run("8-bit");
+	run("RGB Color");
+	run("RGB Split");
+
+//multiply the color images of the concentration (red green and blue) with the masked intensity
+	imageCalculator("Multiply create 32-bit stack", "C (blue)","I_masked");
+	setMinAndMax(0, 65535); // default
+	//setMinAndMax(0, 10000); //for TEM movie
+	run("8-bit");
+	rename("C-2 (blue)");
+
+	imageCalculator("Multiply create 32-bit stack", "C (green)","I_masked");
+	setMinAndMax(0, 65535); // default
+	//setMinAndMax(0, 10000); //for TEM movie
+	run("8-bit");
+	rename("C-2 (green)");
+
+	imageCalculator("Multiply create 32-bit stack", "C (red)","I_masked");
+	setMinAndMax(0, 65535); // default
+	//setMinAndMax(0, 10000); //for TEM movie
+	run("8-bit");
+	rename("C-2 (red)");
+
+//combine the channels again
+	run("RGB Merge...", "red=[C-2 (red)] green=[C-2 (green)] blue=[C-2 (blue)] gray=*None*");
+	setColor(255,255,255);
+	rename(newname);
+
+//close old images
+	selectWindow("C (red)"); close();
+	selectWindow("C (blue)"); close();
+	selectWindow("C (green)"); close();
+	selectWindow("I_masked"); close();
+	selectWindow("fraction"); close();
+	selectWindow("corr_fraction"); close();
+	//selectWindow("backup_C"); close();
+

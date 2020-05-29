@@ -1,0 +1,104 @@
+////////////This script:
+// Assumes a stack of 3 images containing FLIM data (intensity, G coordinate, S coordinate)
+// Makes a mask of the intensity image (choose own fixed threshold)
+// Filters the images in x,y direction (2,2) 
+// Makes masked images of intensity, G and S, 
+// Makes a new stack of (1) the masked intensity, (2) masked G, (3) masked S
+//     and (4) the intensity mask
+
+//// The resulting stack can be used to measure the G and S coordinates of single nuclei, without interference of 
+////     'dead' camera pixels and background fluorescence
+
+
+
+//first close all windows, except the one you want to analyse
+//remove all ROIs from ROI manager
+
+//set the lower threshold for intensity masking
+//pixels with intensity > 28000 are deleted to remove lifetimes resulting from oversaturated pixels
+th=2000; //choose your own, so that only the fluorescent cells are kept. 
+
+//set the frequency correctly
+MHz = 40;
+omega = 2*PI*MHz/1000;
+
+
+
+//get image title and create output name
+selectImage(1);
+name=getTitle;
+prefix=substring(name, 0, lastIndexOf(name,"."));
+newname=prefix +"_G-S_masked" + th;
+
+//separate channels
+run("32-bit"); run("Split Channels");
+
+//rename all stacks and create mask stacks
+//remove outliers and apply a 2D filter
+selectImage(1); rename("intensity");
+changeValues(28000,65000,NaN);
+run("Mean...", "radius=2 stack");
+run("Duplicate...", "title=FLIM_mask duplicate");
+
+selectImage(2); rename("G");
+run("Remove Outliers...", "radius=2 threshold=2 which=Bright stack");
+run("Remove Outliers...", "radius=2 threshold=2 which=Dark stack");
+run("Mean...", "radius=2 stack");
+
+selectImage(3); rename("S");
+run("Remove Outliers...", "radius=2 threshold=2 which=Bright stack");
+run("Remove Outliers...", "radius=2 threshold=2 which=Dark stack");
+run("Mean...", "radius=2 stack");
+
+
+//make the mask
+selectWindow("FLIM_mask");
+run("Enhance Contrast", "saturated=0.35");
+getDimensions(dummy, dummy, dummy, dummy, fr);
+run("Threshold..."); setThreshold(th, 30000); wait(100);
+run("Convert to Mask"); wait(100);
+rename("FLIM_mask");
+run("Divide...", "value=255 stack");
+run("Enhance Contrast", "saturated=0.35"); wait(100);
+
+
+//mask the intensity, G and S image
+selectWindow("intensity"); imageCalculator("Multiply create stack", "intensity","FLIM_mask");
+selectWindow("Result of intensity"); imageCalculator("Divide create stack", "Result of intensity","FLIM_mask");
+rename("int");
+
+selectWindow("G"); imageCalculator("Multiply create stack", "G","FLIM_mask");
+selectWindow("Result of G"); imageCalculator("Divide create stack", "Result of G","FLIM_mask");
+rename("g");
+
+selectWindow("S"); imageCalculator("Multiply create stack", "S","FLIM_mask");
+selectWindow("Result of S"); imageCalculator("Divide create stack", "Result of S","FLIM_mask");
+rename("s");
+
+
+//close all old images
+selectWindow("S"); close();
+selectWindow("G"); close();
+selectWindow("intensity"); close();
+selectWindow("Result of G"); close();
+selectWindow("Result of S"); close();
+selectWindow("Result of intensity"); close();
+
+
+//make a new masked stack 
+selectWindow("FLIM_mask"); run("32-bit");
+run("Concatenate...", "image1=[int] image2=[g] image3=[s] image4=FLIM_mask");
+rename (newname+".tif"); 
+
+
+//give channels pretty colors
+getDimensions(dummy, dummy, ch, sl, fr);
+run("Stack to Hyperstack...", "order=xyczt(default) channels=sl slices=ch frames=fr display=Color");
+run("Cyan");
+run("Enhance Contrast", "saturated=0.35");
+run("Next Slice [>]"); run("Fire");
+setMinAndMax(0, 1);
+run("Next Slice [>]"); run("Fire");
+setMinAndMax(0, 0.5);
+run("Next Slice [>]"); run("Grays");
+run("Enhance Contrast", "saturated=0.35");

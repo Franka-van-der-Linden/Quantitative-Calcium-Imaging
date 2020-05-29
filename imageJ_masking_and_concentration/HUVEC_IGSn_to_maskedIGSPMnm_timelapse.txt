@@ -1,0 +1,239 @@
+////////////This script:
+// Assumes a hyperstack of 3 or 4 timelapses
+//   of which 3 containing FLIM data (intensity, G coordinate, S coordinate)
+//   and the optional 4th containing neutrophils
+
+//// For the FLIM data, it:
+// Makes a mask of the intensity timelapse (choose own fixed threshold)
+// Filters the images in x,y,z direction (2,2,1) 
+// Makes masked images of intensity, G and S
+//// For the optional neutrophil timelapse:
+// Filters the image in x,y and z direction (2,2,1) 
+
+// Makes a new hyperstack of (1) the masked HUVEC intensity, (2) masked G, (3) masked S, (4) masked tphi, (5) masked tmod, (6) neutrophil intensity (if exists), (7) the HUVEC mask and (8) neutrophil mask (optional)
+
+//// The resulting hyperstack can be used to measure the G and S coordinates of regions, without interference of 
+////    'dead' camera pixels and background fluorescence.
+////    Also the neutrophil information is kept to relate calcium in HUVEC to the phase of TEM of the neutrophils
+
+////This script is on GitHub under the name HUVEC_IGSn_to_maskedIGSPMnm_timelapse.txt
+
+
+//first close all windows, except the one you want to analyse
+//first remove all ROIs from ROI manager
+
+
+// Do you want to mask the neutrophils? 1 yes, 0 no
+neutromasking = 0;
+
+//set the lower threshold for intensity masking
+th=400; //choose your own, so that background fluorescence is removed
+
+//set the frequency correctly
+MHz = 40;
+omega = 2*PI*MHz/1000;
+
+
+
+
+//get image title and create output name
+selectImage(1);
+name=getTitle;
+prefix=substring(name, 0, lastIndexOf(name,"."));
+newname=prefix +"_G-S-tphi-tmod_masked" + th;
+
+//prepare the stack for operations, check if it contains a neutrophil timelapse
+getDimensions(dummy, dummy, ch, sl, fr);
+
+run("Stack to Hyperstack...", "order=xyczt(default) channels=ch slices=fr frames=sl display=Grayscale");
+neutroFlag = 0;
+if (ch == 4) {
+   neutroFlag = 1;
+}
+
+//separate channels
+run("32-bit"); run("Split Channels");
+
+//rename all stacks and create mask stacks
+//remove outliers and apply a 3D filter
+selectImage(1); rename("intensity");
+run("Remove Outliers...", "radius=2 threshold=200 which=Bright stack");
+run("Remove Outliers...", "radius=2 threshold=200 which=Dark stack");
+run("Mean 3D...", "x=2 y=2 z=1");
+run("Duplicate...", "title=FLIM_mask duplicate");
+
+selectImage(2); rename("G");
+run("Remove Outliers...", "radius=2 threshold=2 which=Bright stack");
+run("Remove Outliers...", "radius=2 threshold=2 which=Dark stack");
+run("Mean 3D...", "x=2 y=2 z=1");
+
+selectImage(3); rename("S");
+run("Remove Outliers...", "radius=2 threshold=2 which=Bright stack");
+run("Remove Outliers...", "radius=2 threshold=2 which=Dark stack");
+run("Mean 3D...", "x=2 y=2 z=1");
+
+if (neutroFlag == 1) {
+   selectImage(4); rename("neutrophils");
+   run("Remove Outliers...", "radius=2 threshold=200 which=Bright");
+   run("Remove Outliers...", "radius=2 threshold=200 which=Dark");
+   run("Mean 3D...", "x=2 y=2 z=1");
+   if (neutromasking == 1) {
+      run("Duplicate...", "title=neutro_mask duplicate");
+}  }
+
+
+//make the masks
+setBatchMode(true);
+selectWindow("FLIM_mask");
+run("Enhance Contrast", "saturated=0.35");
+getDimensions(dummy, dummy, dummy, dummy, fr);
+run("Stack to Images");
+for (f=1; f<=fr; f++) {
+   if (f<10) {
+      current = "-000" + f;
+   } else {
+      current = "-00" + f;
+   }
+   selectWindow("FLIM_mask" + current);
+   run("Threshold...");
+   setThreshold(th, pow(10,20)); wait(100);
+   run("Convert to Mask"); wait(100);
+   if (f==1) {
+      rename("tempmask");
+   } else {
+      rename("tempje");
+      run("Concatenate...", "  title=tempmask open image1=tempmask image2=tempje image3=[-- None --]");
+      wait(100);
+}  }
+
+setBatchMode("exit and display");
+
+selectWindow("tempmask");
+rename("FLIM_mask");
+run("Divide...", "value=255 stack");
+run("Enhance Contrast", "saturated=0.35");
+
+if (neutroFlag == 1) {
+   if (neutromasking == 1) {
+      selectWindow("neutro_mask"); run("16-bit");
+      run("Enhance Contrast", "saturated=0.35");
+      run("Threshold...");
+      setAutoThreshold("Li dark");
+      run("Convert to Mask", "method=Li background=Dark calculate black");
+      //waitForUser("Set threshold to make cells red. Tick Dark background. Choose Apply, than click OK");
+      run("Divide...", "value=255 stack");
+      run("Enhance Contrast", "saturated=0.35");
+}  }
+
+
+//mask the intensity, G and S stacks
+selectWindow("intensity"); imageCalculator("Multiply create stack", "intensity","FLIM_mask");
+selectWindow("Result of intensity"); imageCalculator("Divide create stack", "Result of intensity","FLIM_mask"); rename("int");
+
+selectWindow("G"); imageCalculator("Multiply create stack", "G","FLIM_mask");
+selectWindow("Result of G"); imageCalculator("Divide create stack", "Result of G","FLIM_mask"); rename("g");
+
+selectWindow("S"); imageCalculator("Multiply create stack", "S","FLIM_mask");
+selectWindow("Result of S"); imageCalculator("Divide create stack", "Result of S","FLIM_mask"); rename("s");
+
+if (neutroFlag == 1) {
+   if (neutromasking == 1) {
+      selectWindow("neutrophils"); imageCalculator("Multiply create stack", "neutrophils","neutro_mask");
+      selectWindow("Result of neutrophils"); imageCalculator("Divide create stack", "Result of neutrophils","neutro_mask"); rename("neutro");
+}  }
+
+
+//close all old images
+selectWindow("S"); close();
+selectWindow("G"); close();
+selectWindow("intensity"); close();
+selectWindow("Result of G"); close();
+selectWindow("Result of S"); close();
+selectWindow("Result of intensity"); close();
+if (neutroFlag == 1) {
+   if (neutromasking == 1) {
+      selectWindow("Result of neutrophils"); close();
+      selectWindow("neutrophils"); close();
+}  }
+
+
+///convert G and S into lifetimes
+/// first set the variables
+MHz = 40;
+omega = 2*PI*MHz/1000;
+imageCalculator("Divide create stack", "s","g"); rename("s_over_g");
+code="value=" + 1/omega + " stack";
+run("Multiply...", code); rename("t-phi");
+
+selectWindow("g"); 
+run("Duplicate...", "duplicate"); rename("g2");
+run("Square", "stack");
+selectWindow("s"); 
+run("Duplicate...", "duplicate"); rename("s2");
+run("Square", "stack");
+imageCalculator("Add create stack", "s2","g2"); rename("s2_add_g2");
+code = "code=" + 1/omega + "*sqrt((1/v)-1) stack";
+run("Macro...", code); rename("t-mod");
+
+
+//make a new masked stack 
+selectWindow("FLIM_mask"); run("32-bit");
+if (neutroFlag ==0) {
+   run("Merge Channels...", "c1=[int] c2=[g] c3=[s] c4=[t-phi] c5=[t-mod] c6=FLIM_mask");
+} else if (neutromasking == 1) {
+   selectWindow("neutro_mask"); run("32-bit");
+   run("Merge Channels...", "c1=[int] c2=[g] c3=[s] c4=[t-phi] c5=[t-mod] c6=[neutro] c7=FLIM_mask c8=[neutro_mask]");
+} else {
+   selectWindow("neutrophils"); run("32-bit");
+   run("Merge Channels...", "c1=[int] c2=[g] c3=[s] c4=[t-phi] c5=[t-mod] c6=[neutrophils] c7=FLIM_mask");
+}
+Stack.setDisplayMode("grayscale");
+rename (newname+".tif"); 
+
+
+//close old images
+selectWindow("g2"); close();
+selectWindow("s2"); close();
+
+
+//give channels pretty colors
+run("Cyan");
+setMinAndMax(0, 2000);
+run("Next Slice [>]"); run("Fire");
+setMinAndMax(0, 2);
+run("Next Slice [>]"); run("Fire");
+setMinAndMax(0, 1);
+run("Next Slice [>]"); run("Fire");
+setMinAndMax(0, 5);
+run("Next Slice [>]"); run("Fire");
+setMinAndMax(0,5);
+//neutroFlag=1;
+if (neutroFlag==1) {
+   run("Next Slice [>]"); run("Red");
+   setMinAndMax(0, 5000);
+   run("Next Slice [>]"); run("Grays");
+   run("Enhance Contrast", "saturated=0.35");
+   run("Next Slice [>]"); run("Grays");
+   run("Enhance Contrast", "saturated=0.35");
+} else {
+   run("Next Slice [>]"); run("Grays");
+   run("Enhance Contrast", "saturated=0.35");
+   run("Next Slice [>]"); run("Grays");
+   run("Enhance Contrast", "saturated=0.35");
+}
+
+
+
+
+
+/// this part is not on Github
+
+///old thresholding method!
+//selectWindow("FLIM_mask"); run("16-bit");
+//run("Enhance Contrast", "saturated=0.35");
+//run("Threshold...");
+//setAutoThreshold("Li dark");
+//run("Convert to Mask", "method=Li background=Dark calculate black");
+//waitForUser("Set threshold to make cells red. Tick Dark background. Choose Apply, than click OK");
+//run("Divide...", "value=255 stack");
+//run("Enhance Contrast", "saturated=0.35");
